@@ -48,6 +48,9 @@ If your headers vary slightly, map columns manually in the dashboard.
 4. Click **Start Threat/Reason Walkthrough**.
 5. Score each row and add comments where needed.
 6. Click **Download Final Scored CSV** to export.
+7. (Recommended) Click **Choose Save Folder**, select `01_CompletedAssessments`, then use:
+   - **Save Partial** while assessment is in progress
+   - **Save Complete** when finished
 
 Output file name:
 
@@ -59,6 +62,17 @@ Output file name:
 - Autosave is local to your browser/device.
 - Reopening the same file/sheet structure restores prior progress.
 - To fully reset, clear browser storage for the site.
+- If you reopen a previously saved partial CSV, the dashboard reads existing score columns and resumes from the first incomplete row.
+
+## Folder-Based Partial/Complete Saves
+
+- Input queue folder: `00_ToBeAssessed`
+- Output folder: `01_CompletedAssessments`
+- Partial/complete saves write CSV files with timestamped names:
+  - `<base>_PARTIAL_YYYYMMDD_HHMMSS.csv`
+  - `<base>_COMPLETE_YYYYMMDD_HHMMSS.csv`
+- Direct folder save uses the browser File System Access API (Chrome/Edge recommended).
+- If folder-write is unavailable, use **Download Final Scored CSV** and place the file in `01_CompletedAssessments` manually.
 
 ## Recommended Local Serving
 

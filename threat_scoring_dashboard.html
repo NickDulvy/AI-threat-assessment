@@ -145,6 +145,7 @@
         </div>
       </div>
       <p class="muted" id="loadStatus">No file loaded.</p>
+      <p class="muted" id="saveFolderStatus">Save folder: not selected (recommended: 01_CompletedAssessments)</p>
     </div>
 
     <div class="card hidden" id="mappingCard">
@@ -239,6 +240,9 @@
       <div class="footer-actions">
         <button class="secondary" id="prevBtn">Previous</button>
         <button id="saveNextBtn">Save & Next</button>
+        <button class="secondary" id="chooseFolderBtn">Choose Save Folder</button>
+        <button class="secondary" id="savePartialBtn">Save Partial</button>
+        <button class="secondary" id="saveCompleteBtn">Save Complete</button>
         <button class="secondary" id="exportBtn">Download Final Scored CSV</button>
       </div>
     </div>
@@ -252,6 +256,7 @@
       workbook: null,
       fileName: "",
       sheetName: "",
+      saveDirHandle: null,
       rawRows: [],
       headers: [],
       mappedRows: [],
@@ -293,6 +298,10 @@
       commentText: document.getElementById("commentText"),
       prevBtn: document.getElementById("prevBtn"),
       saveNextBtn: document.getElementById("saveNextBtn"),
+      chooseFolderBtn: document.getElementById("chooseFolderBtn"),
+      savePartialBtn: document.getElementById("savePartialBtn"),
+      saveCompleteBtn: document.getElementById("saveCompleteBtn"),
+      saveFolderStatus: document.getElementById("saveFolderStatus"),
       exportBtn: document.getElementById("exportBtn")
     };
 
@@ -383,7 +392,26 @@
     }
 
     function setReviewControlsEnabled(enabled) {
-      [el.prevBtn, el.saveNextBtn, el.exportBtn].forEach((btn) => { btn.disabled = !enabled; });
+      [el.prevBtn, el.saveNextBtn, el.exportBtn, el.chooseFolderBtn, el.savePartialBtn, el.saveCompleteBtn]
+        .forEach((btn) => { btn.disabled = !enabled; });
+    }
+
+    function hasFolderWriteSupport() {
+      return typeof window.showDirectoryPicker === "function";
+    }
+
+    function baseFileName() {
+      return state.fileName ? state.fileName.replace(/\.[^.]+$/, "") : "threat_assessment";
+    }
+
+    function timestampToken() {
+      const d = new Date();
+      const p2 = (n) => String(n).padStart(2, "0");
+      return `${d.getFullYear()}${p2(d.getMonth() + 1)}${p2(d.getDate())}_${p2(d.getHours())}${p2(d.getMinutes())}${p2(d.getSeconds())}`;
+    }
+
+    function setSaveFolderStatus(text) {
+      el.saveFolderStatus.textContent = `Save folder: ${text}`;
     }
 
     function startReview() {
@@ -407,14 +435,23 @@
         }))
         .filter((r) => r.threat || r.reason || r.evidence);
 
-      state.scores = state.mappedRows.map(() => ({
-        reasonLogic: "",
-        reasonRelevance: "",
-        evidenceAccuracy: "",
-        evidenceRelevance: "",
-        strengthAccuracy: "",
-        comments: ""
-      }));
+      state.scores = state.mappedRows.map((mapped) => {
+        const source = state.rawRows[mapped.sourceRow - 2] || {};
+        const normalizeStrength = (v) => {
+          const s = String(v ?? "").trim();
+          if (!s) return "";
+          if (/^[+-]\d$/.test(s) || /^-?\d$/.test(s)) return s.startsWith("+") || s.startsWith("-") || s === "0" ? s : `+${s}`;
+          return "";
+        };
+        return {
+          reasonLogic: String(source[SCORE_COLS.reasonLogic] ?? "").trim(),
+          reasonRelevance: String(source[SCORE_COLS.reasonRelevance] ?? "").trim(),
+          evidenceAccuracy: String(source[SCORE_COLS.evidenceAccuracy] ?? "").trim(),
+          evidenceRelevance: String(source[SCORE_COLS.evidenceRelevance] ?? "").trim(),
+          strengthAccuracy: normalizeStrength(source[SCORE_COLS.strengthAccuracy]),
+          comments: String(source[SCORE_COLS.comments] ?? "").trim()
+        };
+      });
       state.currentIndex = 0;
 
       if (state.mappedRows.length === 0) {
@@ -425,6 +462,12 @@
       el.reviewCard.classList.remove("hidden");
       setReviewControlsEnabled(true);
       restoreAutosave();
+      if (state.currentIndex === 0) {
+        const nextIdx = state.scores.findIndex((s) =>
+          !s.reasonLogic || !s.reasonRelevance || !s.evidenceAccuracy || !s.evidenceRelevance || !s.strengthAccuracy
+        );
+        if (nextIdx >= 0) state.currentIndex = nextIdx;
+      }
       renderCurrent();
     }
 
@@ -553,8 +596,7 @@
       return text;
     }
 
-    function exportScoresCSV() {
-      saveCurrent();
+    function buildScoredRowsAndHeaders() {
       const outRows = state.rawRows.map((r) => ({ ...r }));
 
       const ensureColumn = (name) => {
@@ -574,19 +616,81 @@
         outRows[outIdx][SCORE_COLS.comments] = s.comments;
       });
 
-      const lines = [state.headers.map(csvEscape).join(",")];
+      return { outRows, headers: [...state.headers] };
+    }
+
+    function buildScoredCSVText() {
+      const { outRows, headers } = buildScoredRowsAndHeaders();
+
+      const lines = [headers.map(csvEscape).join(",")];
       outRows.forEach((r) => {
-        const vals = state.headers.map((h) => csvEscape(r[h] ?? ""));
+        const vals = headers.map((h) => csvEscape(r[h] ?? ""));
         lines.push(vals.join(","));
       });
+      return lines.join("\n");
+    }
 
-      const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8;" });
+    function downloadCSV(filename, csvText) {
+      const blob = new Blob([csvText], { type: "text/csv;charset=utf-8;" });
       const a = document.createElement("a");
       a.href = URL.createObjectURL(blob);
-      const base = state.fileName ? state.fileName.replace(/\.[^.]+$/, "") : "threat_assessment";
-      a.download = `${base}_scored.csv`;
+      a.download = filename;
       a.click();
       URL.revokeObjectURL(a.href);
+    }
+
+    function exportScoresCSV() {
+      saveCurrent();
+      downloadCSV(`${baseFileName()}_scored.csv`, buildScoredCSVText());
+    }
+
+    async function chooseSaveFolder() {
+      if (!hasFolderWriteSupport()) {
+        setSaveFolderStatus("folder saving not supported in this browser; use downloads");
+        alert("This browser cannot write directly to a folder. Please use Chrome/Edge and open this dashboard via localhost or GitHub Pages.");
+        return;
+      }
+      try {
+        const dirHandle = await window.showDirectoryPicker({ mode: "readwrite" });
+        state.saveDirHandle = dirHandle;
+        setSaveFolderStatus(`${dirHandle.name} (selected)`);
+      } catch (err) {
+        if (err && err.name === "AbortError") return;
+        setSaveFolderStatus(`selection failed (${err.message})`);
+      }
+    }
+
+    async function saveCSVToSelectedFolder(filename) {
+      if (!state.saveDirHandle) {
+        alert("Select your save folder first (choose 01_CompletedAssessments).");
+        return false;
+      }
+      try {
+        const csvText = buildScoredCSVText();
+        const fileHandle = await state.saveDirHandle.getFileHandle(filename, { create: true });
+        const writable = await fileHandle.createWritable();
+        await writable.write(csvText);
+        await writable.close();
+        setSaveFolderStatus(`${state.saveDirHandle.name} (saved ${filename})`);
+        return true;
+      } catch (err) {
+        setSaveFolderStatus(`save failed (${err.message})`);
+        alert(`Save failed: ${err.message}`);
+        return false;
+      }
+    }
+
+    async function savePartialToFolder() {
+      saveCurrent();
+      const filename = `${baseFileName()}_PARTIAL_${timestampToken()}.csv`;
+      await saveCSVToSelectedFolder(filename);
+    }
+
+    async function saveCompleteToFolder() {
+      saveCurrent();
+      const filename = `${baseFileName()}_COMPLETE_${timestampToken()}.csv`;
+      const ok = await saveCSVToSelectedFolder(filename);
+      if (ok) alert("Complete assessment saved.");
     }
 
     el.fileInput.addEventListener("change", async (e) => {
@@ -610,6 +714,9 @@
     el.prevBtn.addEventListener("click", prevRow);
     el.saveNextBtn.addEventListener("click", nextRow);
     el.exportBtn.addEventListener("click", exportScoresCSV);
+    el.chooseFolderBtn.addEventListener("click", chooseSaveFolder);
+    el.savePartialBtn.addEventListener("click", savePartialToFolder);
+    el.saveCompleteBtn.addEventListener("click", saveCompleteToFolder);
     [el.reasonLogicScore, el.reasonRelevanceScore, el.evidenceAccuracyScore, el.evidenceRelevanceScore, el.strengthAccuracyScore, el.commentText]
       .forEach((node) => {
         node.addEventListener("change", persistAutosave);
@@ -621,6 +728,9 @@
 
     setupScoreSelects();
     setReviewControlsEnabled(false);
+    if (!hasFolderWriteSupport()) {
+      setSaveFolderStatus("direct folder save unavailable in this browser; use downloaded CSV files");
+    }
   </script>
 </body>
 </html>
