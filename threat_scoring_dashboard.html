@@ -80,6 +80,8 @@
     }
     .kpi { font-size: 0.92rem; }
     .kpi strong { color: var(--ok); }
+    .kpi-left { text-align: left; margin-bottom: 8px; }
+    .kpi-left strong { color: #111827; }
     .hidden { display: none; }
     .guidance {
       border-left: 3px solid var(--accent);
@@ -144,8 +146,26 @@
           <button id="loadBtn" disabled>Load Rows</button>
         </div>
       </div>
+      <div class="grid" style="margin-top:10px;">
+        <div>
+          <label for="repoFolderSelect">Load from GitHub repo folder</label>
+          <select id="repoFolderSelect">
+            <option value="00_ToBeAssessed">00_ToBeAssessed</option>
+            <option value="01_PartiallyCompleteAssessments">01_PartiallyCompleteAssessments</option>
+          </select>
+        </div>
+        <div>
+          <label for="repoFileSelect">Repository spreadsheet</label>
+          <select id="repoFileSelect" disabled></select>
+        </div>
+        <div class="row">
+          <button class="secondary" id="refreshRepoBtn">Refresh Repo Files</button>
+          <button id="loadRepoBtn" disabled>Load Selected Repo File</button>
+        </div>
+      </div>
+      <p class="muted" id="repoLoadStatus">Repo loader: choose a folder and click Refresh Repo Files.</p>
       <p class="muted" id="loadStatus">No file loaded.</p>
-      <p class="muted" id="saveFolderStatus">Save folder: not selected (recommended: 01_CompletedAssessments)</p>
+      <p class="muted" id="saveFolderStatus">Save folders: partial not selected (01_PartiallyCompleteAssessments), complete not selected (02_CompletedAssessments)</p>
     </div>
 
     <div class="card hidden" id="mappingCard">
@@ -175,6 +195,10 @@
 
     <div class="card hidden" id="reviewCard">
       <h2>3) Review and Score</h2>
+      <div class="kpi kpi-left">
+        <strong>Current Threat (Column 1):</strong>
+        <span id="currentThreatTop">-</span>
+      </div>
       <div class="row">
         <div class="kpi">
           <span class="pill" id="progressPill">0 / 0</span>
@@ -240,7 +264,8 @@
       <div class="footer-actions">
         <button class="secondary" id="prevBtn">Previous</button>
         <button id="saveNextBtn">Save & Next</button>
-        <button class="secondary" id="chooseFolderBtn">Choose Save Folder</button>
+        <button class="secondary" id="choosePartialFolderBtn">Choose Partial Folder</button>
+        <button class="secondary" id="chooseCompleteFolderBtn">Choose Complete Folder</button>
         <button class="secondary" id="savePartialBtn">Save Partial</button>
         <button class="secondary" id="saveCompleteBtn">Save Complete</button>
         <button class="secondary" id="exportBtn">Download Final Scored CSV</button>
@@ -256,7 +281,8 @@
       workbook: null,
       fileName: "",
       sheetName: "",
-      saveDirHandle: null,
+      partialDirHandle: null,
+      completeDirHandle: null,
       rawRows: [],
       headers: [],
       mappedRows: [],
@@ -272,6 +298,11 @@
 
     const el = {
       fileInput: document.getElementById("fileInput"),
+      repoFolderSelect: document.getElementById("repoFolderSelect"),
+      repoFileSelect: document.getElementById("repoFileSelect"),
+      refreshRepoBtn: document.getElementById("refreshRepoBtn"),
+      loadRepoBtn: document.getElementById("loadRepoBtn"),
+      repoLoadStatus: document.getElementById("repoLoadStatus"),
       sheetSelect: document.getElementById("sheetSelect"),
       loadBtn: document.getElementById("loadBtn"),
       loadStatus: document.getElementById("loadStatus"),
@@ -286,6 +317,7 @@
       progressPill: document.getElementById("progressPill"),
       threatPill: document.getElementById("threatPill"),
       completionText: document.getElementById("completionText"),
+      currentThreatTop: document.getElementById("currentThreatTop"),
       threatText: document.getElementById("threatText"),
       reasonText: document.getElementById("reasonText"),
       evidenceText: document.getElementById("evidenceText"),
@@ -298,11 +330,18 @@
       commentText: document.getElementById("commentText"),
       prevBtn: document.getElementById("prevBtn"),
       saveNextBtn: document.getElementById("saveNextBtn"),
-      chooseFolderBtn: document.getElementById("chooseFolderBtn"),
+      choosePartialFolderBtn: document.getElementById("choosePartialFolderBtn"),
+      chooseCompleteFolderBtn: document.getElementById("chooseCompleteFolderBtn"),
       savePartialBtn: document.getElementById("savePartialBtn"),
       saveCompleteBtn: document.getElementById("saveCompleteBtn"),
       saveFolderStatus: document.getElementById("saveFolderStatus"),
       exportBtn: document.getElementById("exportBtn")
+    };
+
+    const GH_REPO = {
+      owner: "NickDulvy",
+      repo: "AI-threat-assessment",
+      branch: "main"
     };
 
     const SCORE_COLS = {
@@ -392,7 +431,7 @@
     }
 
     function setReviewControlsEnabled(enabled) {
-      [el.prevBtn, el.saveNextBtn, el.exportBtn, el.chooseFolderBtn, el.savePartialBtn, el.saveCompleteBtn]
+      [el.prevBtn, el.saveNextBtn, el.exportBtn, el.choosePartialFolderBtn, el.chooseCompleteFolderBtn, el.savePartialBtn, el.saveCompleteBtn]
         .forEach((btn) => { btn.disabled = !enabled; });
     }
 
@@ -407,11 +446,26 @@
     function timestampToken() {
       const d = new Date();
       const p2 = (n) => String(n).padStart(2, "0");
-      return `${d.getFullYear()}${p2(d.getMonth() + 1)}${p2(d.getDate())}_${p2(d.getHours())}${p2(d.getMinutes())}${p2(d.getSeconds())}`;
+      return `${String(d.getFullYear()).slice(-2)}${p2(d.getMonth() + 1)}${p2(d.getDate())}_${p2(d.getHours())}${p2(d.getMinutes())}`;
     }
 
-    function setSaveFolderStatus(text) {
-      el.saveFolderStatus.textContent = `Save folder: ${text}`;
+    function setSaveFolderStatus() {
+      const partialName = state.partialDirHandle ? state.partialDirHandle.name : "not selected";
+      const completeName = state.completeDirHandle ? state.completeDirHandle.name : "not selected";
+      el.saveFolderStatus.textContent = `Save folders: partial ${partialName} (01_PartiallyCompleteAssessments), complete ${completeName} (02_CompletedAssessments)`;
+    }
+
+    function setRepoLoadStatus(text) {
+      el.repoLoadStatus.textContent = `Repo loader: ${text}`;
+    }
+
+    async function loadWorkbookIntoUI(wb, fileLabel) {
+      state.workbook = wb;
+      state.fileName = fileLabel;
+      fillSelectOptions(el.sheetSelect, state.workbook.SheetNames, false);
+      el.sheetSelect.disabled = false;
+      el.loadBtn.disabled = false;
+      el.loadStatus.textContent = `File loaded: ${fileLabel}`;
     }
 
     function startReview() {
@@ -425,14 +479,19 @@
         return;
       }
 
+      let currentThreat = "";
       state.mappedRows = state.rawRows
-        .map((r, idx) => ({
-          sourceRow: idx + 2,
-          threat: String(r[state.map.threat] || "").trim(),
-          reason: String(r[state.map.reason] || "").trim(),
-          evidence: String(r[state.map.evidence] || "").trim(),
-          strength: state.map.strength ? String(r[state.map.strength] || "").trim() : ""
-        }))
+        .map((r, idx) => {
+          const threatRaw = String(r[state.map.threat] || "").trim();
+          if (threatRaw) currentThreat = threatRaw;
+          return {
+            sourceRow: idx + 2,
+            threat: currentThreat,
+            reason: String(r[state.map.reason] || "").trim(),
+            evidence: String(r[state.map.evidence] || "").trim(),
+            strength: state.map.strength ? String(r[state.map.strength] || "").trim() : ""
+          };
+        })
         .filter((r) => r.threat || r.reason || r.evidence);
 
       state.scores = state.mappedRows.map((mapped) => {
@@ -543,6 +602,7 @@
       el.progressPill.textContent = `${idx + 1} / ${total}`;
       el.threatPill.textContent = `Threat Group: ${getThreatOrderIndex(idx)}`;
       el.completionText.innerHTML = `<strong>${pct}%</strong> completed`;
+      el.currentThreatTop.textContent = row.threat || "(No threat text)";
       el.threatText.textContent = row.threat || "(No threat text)";
       el.reasonText.textContent = row.reason || "(No reason text)";
       el.evidenceText.textContent = row.evidence || "(No evidence text)";
@@ -644,37 +704,55 @@
       downloadCSV(`${baseFileName()}_scored.csv`, buildScoredCSVText());
     }
 
-    async function chooseSaveFolder() {
+    async function choosePartialFolder() {
       if (!hasFolderWriteSupport()) {
-        setSaveFolderStatus("folder saving not supported in this browser; use downloads");
+        setSaveFolderStatus();
         alert("This browser cannot write directly to a folder. Please use Chrome/Edge and open this dashboard via localhost or GitHub Pages.");
         return;
       }
       try {
         const dirHandle = await window.showDirectoryPicker({ mode: "readwrite" });
-        state.saveDirHandle = dirHandle;
-        setSaveFolderStatus(`${dirHandle.name} (selected)`);
+        state.partialDirHandle = dirHandle;
+        setSaveFolderStatus();
       } catch (err) {
         if (err && err.name === "AbortError") return;
-        setSaveFolderStatus(`selection failed (${err.message})`);
+        setSaveFolderStatus();
       }
     }
 
-    async function saveCSVToSelectedFolder(filename) {
-      if (!state.saveDirHandle) {
-        alert("Select your save folder first (choose 01_CompletedAssessments).");
+    async function chooseCompleteFolder() {
+      if (!hasFolderWriteSupport()) {
+        setSaveFolderStatus();
+        alert("This browser cannot write directly to a folder. Please use Chrome/Edge and open this dashboard via localhost or GitHub Pages.");
+        return;
+      }
+      try {
+        const dirHandle = await window.showDirectoryPicker({ mode: "readwrite" });
+        state.completeDirHandle = dirHandle;
+        setSaveFolderStatus();
+      } catch (err) {
+        if (err && err.name === "AbortError") return;
+        setSaveFolderStatus();
+      }
+    }
+
+    async function saveCSVToSelectedFolder(filename, folderType) {
+      const dirHandle = folderType === "partial" ? state.partialDirHandle : state.completeDirHandle;
+      const expected = folderType === "partial" ? "01_PartiallyCompleteAssessments" : "02_CompletedAssessments";
+      if (!dirHandle) {
+        alert(`Select your ${folderType} save folder first (${expected}).`);
         return false;
       }
       try {
         const csvText = buildScoredCSVText();
-        const fileHandle = await state.saveDirHandle.getFileHandle(filename, { create: true });
+        const fileHandle = await dirHandle.getFileHandle(filename, { create: true });
         const writable = await fileHandle.createWritable();
         await writable.write(csvText);
         await writable.close();
-        setSaveFolderStatus(`${state.saveDirHandle.name} (saved ${filename})`);
+        setSaveFolderStatus();
         return true;
       } catch (err) {
-        setSaveFolderStatus(`save failed (${err.message})`);
+        setSaveFolderStatus();
         alert(`Save failed: ${err.message}`);
         return false;
       }
@@ -683,13 +761,13 @@
     async function savePartialToFolder() {
       saveCurrent();
       const filename = `${baseFileName()}_PARTIAL_${timestampToken()}.csv`;
-      await saveCSVToSelectedFolder(filename);
+      await saveCSVToSelectedFolder(filename, "partial");
     }
 
     async function saveCompleteToFolder() {
       saveCurrent();
       const filename = `${baseFileName()}_COMPLETE_${timestampToken()}.csv`;
-      const ok = await saveCSVToSelectedFolder(filename);
+      const ok = await saveCSVToSelectedFolder(filename, "complete");
       if (ok) alert("Complete assessment saved.");
     }
 
@@ -698,23 +776,74 @@
       if (!file) return;
 
       try {
-        state.fileName = file.name;
-        state.workbook = await parseWorkbookFromFile(file);
-        fillSelectOptions(el.sheetSelect, state.workbook.SheetNames, false);
-        el.sheetSelect.disabled = false;
-        el.loadBtn.disabled = false;
-        el.loadStatus.textContent = `File loaded: ${file.name}`;
+        const wb = await parseWorkbookFromFile(file);
+        await loadWorkbookIntoUI(wb, file.name);
       } catch (err) {
         el.loadStatus.textContent = `Error loading file: ${err.message}`;
       }
     });
 
+    async function refreshRepoFiles() {
+      const folder = el.repoFolderSelect.value;
+      const apiUrl = `https://api.github.com/repos/${GH_REPO.owner}/${GH_REPO.repo}/contents/${encodeURIComponent(folder)}?ref=${encodeURIComponent(GH_REPO.branch)}`;
+      try {
+        setRepoLoadStatus(`loading file list from ${folder}...`);
+        const res = await fetch(apiUrl);
+        if (!res.ok) throw new Error(`GitHub API ${res.status}`);
+        const list = await res.json();
+        const files = Array.isArray(list) ? list.filter((f) => /\.(csv|xlsx|xls)$/i.test(f.name)) : [];
+        el.repoFileSelect.innerHTML = "";
+        if (!files.length) {
+          el.repoFileSelect.disabled = true;
+          el.loadRepoBtn.disabled = true;
+          setRepoLoadStatus(`no spreadsheet files found in ${folder}`);
+          return;
+        }
+        files.sort((a, b) => a.name.localeCompare(b.name));
+        files.forEach((f) => {
+          const opt = document.createElement("option");
+          opt.value = f.download_url || "";
+          opt.textContent = f.name;
+          opt.dataset.filename = f.name;
+          el.repoFileSelect.appendChild(opt);
+        });
+        el.repoFileSelect.disabled = false;
+        el.loadRepoBtn.disabled = false;
+        setRepoLoadStatus(`found ${files.length} file(s) in ${folder}`);
+      } catch (err) {
+        el.repoFileSelect.disabled = true;
+        el.loadRepoBtn.disabled = true;
+        setRepoLoadStatus(`failed to load folder (${err.message})`);
+      }
+    }
+
+    async function loadSelectedRepoFile() {
+      const url = el.repoFileSelect.value;
+      if (!url) return;
+      const fileName = el.repoFileSelect.options[el.repoFileSelect.selectedIndex]?.dataset?.filename || "repo_file";
+      try {
+        setRepoLoadStatus(`downloading ${fileName}...`);
+        const res = await fetch(url);
+        if (!res.ok) throw new Error(`download failed (${res.status})`);
+        const arrayBuffer = await res.arrayBuffer();
+        const wb = XLSX.read(arrayBuffer, { type: "array" });
+        await loadWorkbookIntoUI(wb, fileName);
+        setRepoLoadStatus(`loaded ${fileName}`);
+      } catch (err) {
+        setRepoLoadStatus(`failed to load ${fileName} (${err.message})`);
+      }
+    }
+
     el.loadBtn.addEventListener("click", loadSheetRows);
+    el.refreshRepoBtn.addEventListener("click", refreshRepoFiles);
+    el.loadRepoBtn.addEventListener("click", loadSelectedRepoFile);
+    el.repoFolderSelect.addEventListener("change", refreshRepoFiles);
     el.startReviewBtn.addEventListener("click", startReview);
     el.prevBtn.addEventListener("click", prevRow);
     el.saveNextBtn.addEventListener("click", nextRow);
     el.exportBtn.addEventListener("click", exportScoresCSV);
-    el.chooseFolderBtn.addEventListener("click", chooseSaveFolder);
+    el.choosePartialFolderBtn.addEventListener("click", choosePartialFolder);
+    el.chooseCompleteFolderBtn.addEventListener("click", chooseCompleteFolder);
     el.savePartialBtn.addEventListener("click", savePartialToFolder);
     el.saveCompleteBtn.addEventListener("click", saveCompleteToFolder);
     [el.reasonLogicScore, el.reasonRelevanceScore, el.evidenceAccuracyScore, el.evidenceRelevanceScore, el.strengthAccuracyScore, el.commentText]
@@ -728,9 +857,9 @@
 
     setupScoreSelects();
     setReviewControlsEnabled(false);
-    if (!hasFolderWriteSupport()) {
-      setSaveFolderStatus("direct folder save unavailable in this browser; use downloaded CSV files");
-    }
+    setSaveFolderStatus();
+    if (!hasFolderWriteSupport()) setSaveFolderStatus();
+    refreshRepoFiles();
   </script>
 </body>
 </html>

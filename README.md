@@ -6,6 +6,7 @@ Project links:
 
 - GitHub repository: [https://github.com/NickDulvy/AI-threat-assessment](https://github.com/NickDulvy/AI-threat-assessment)
 - GitHub Pages app URL: [https://nickdulvy.github.io/AI-threat-assessment/threat_scoring_dashboard.html](https://nickdulvy.github.io/AI-threat-assessment/threat_scoring_dashboard.html)
+- Preferred browser: **Google Chrome or Microsoft Edge** (recommended for folder-based save/load features via File System Access API)
 
 Main app file:
 
@@ -48,7 +49,10 @@ If your headers vary slightly, map columns manually in the dashboard.
 4. Click **Start Threat/Reason Walkthrough**.
 5. Score each row and add comments where needed.
 6. Click **Download Final Scored CSV** to export.
-7. (Recommended) Click **Choose Save Folder**, select `01_CompletedAssessments`, then use:
+7. (Recommended) click:
+   - **Choose Partial Folder** and select `01_PartiallyCompleteAssessments`
+   - **Choose Complete Folder** and select `02_CompletedAssessments`
+8. Use:
    - **Save Partial** while assessment is in progress
    - **Save Complete** when finished
 
@@ -67,12 +71,16 @@ Output file name:
 ## Folder-Based Partial/Complete Saves
 
 - Input queue folder: `00_ToBeAssessed`
-- Output folder: `01_CompletedAssessments`
+- Partials folder: `01_PartiallyCompleteAssessments`
+- Completed folder: `02_CompletedAssessments`
 - Partial/complete saves write CSV files with timestamped names:
-  - `<base>_PARTIAL_YYYYMMDD_HHMMSS.csv`
-  - `<base>_COMPLETE_YYYYMMDD_HHMMSS.csv`
+  - `<base>_PARTIAL_yymmdd_hhmm.csv`
+  - `<base>_COMPLETE_yymmdd_hhmm.csv`
 - Direct folder save uses the browser File System Access API (Chrome/Edge recommended).
-- If folder-write is unavailable, use **Download Final Scored CSV** and place the file in `01_CompletedAssessments` manually.
+- If folder-write is unavailable, use **Download Final Scored CSV** and place the file in the appropriate folder manually.
+- You can also load files directly from the GitHub repo via the dashboard:
+  - `00_ToBeAssessed` for new assessments
+  - `01_PartiallyCompleteAssessments` to resume in-progress scoring
 
 ## Recommended Local Serving
 
