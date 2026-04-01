@@ -106,6 +106,15 @@
       font-weight: 700;
       margin-bottom: 8px;
     }
+    .threat-reminder {
+      background: #eff6ff;
+      border: 1px solid #bfdbfe;
+      border-radius: 8px;
+      padding: 10px;
+      margin: 8px 0 10px;
+      font-weight: 700;
+      color: #1e3a8a;
+    }
     .reason {
       background: #f9fafb;
       border: 1px solid #e5e7eb;
@@ -195,10 +204,7 @@
 
     <div class="card hidden" id="reviewCard">
       <h2>3) Review and Score</h2>
-      <div class="kpi kpi-left">
-        <strong>Current Threat (Column 1):</strong>
-        <span id="currentThreatTop">-</span>
-      </div>
+      <div class="threat-reminder" id="currentThreatTop">Threat from Column 1: -</div>
       <div class="row">
         <div class="kpi">
           <span class="pill" id="progressPill">0 / 0</span>
@@ -581,12 +587,27 @@
     }
 
     function getThreatOrderIndex(idx) {
-      const threat = state.mappedRows[idx]?.threat || "";
+      const threat = resolveThreatText(idx);
       const seen = [];
       state.mappedRows.forEach((row) => {
         if (row.threat && !seen.includes(row.threat)) seen.push(row.threat);
       });
       return Math.max(1, seen.indexOf(threat) + 1);
+    }
+
+    function resolveThreatText(idx) {
+      if (!state.mappedRows[idx]) return "";
+      const direct = String(state.mappedRows[idx].threat || "").trim();
+      if (direct) return direct;
+      for (let i = idx - 1; i >= 0; i -= 1) {
+        const prev = String(state.mappedRows[i].threat || "").trim();
+        if (prev) return prev;
+      }
+      for (let i = idx + 1; i < state.mappedRows.length; i += 1) {
+        const next = String(state.mappedRows[i].threat || "").trim();
+        if (next) return next;
+      }
+      return "";
     }
 
     function renderCurrent() {
@@ -599,11 +620,12 @@
       const completed = state.scores.filter((x) => x.reasonLogic !== "").length;
       const pct = Math.round((completed / total) * 100);
 
+      const currentThreat = resolveThreatText(idx);
       el.progressPill.textContent = `${idx + 1} / ${total}`;
       el.threatPill.textContent = `Threat Group: ${getThreatOrderIndex(idx)}`;
       el.completionText.innerHTML = `<strong>${pct}%</strong> completed`;
-      el.currentThreatTop.textContent = row.threat || "(No threat text)";
-      el.threatText.textContent = row.threat || "(No threat text)";
+      el.currentThreatTop.textContent = `Threat from Column 1: ${currentThreat || "(No threat text)"}`;
+      el.threatText.textContent = currentThreat || "(No threat text)";
       el.reasonText.textContent = row.reason || "(No reason text)";
       el.evidenceText.textContent = row.evidence || "(No evidence text)";
       el.strengthText.textContent = row.strength || "(No strength value in mapped column)";
