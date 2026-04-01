@@ -2,6 +2,11 @@
 
 This project provides a browser-based dashboard to score AI-generated threat justification tables against your rubric.
 
+Project links:
+
+- GitHub repository: [https://github.com/NickDulvy/AI-threat-assessment](https://github.com/NickDulvy/AI-threat-assessment)
+- GitHub Pages app URL: [https://nickdulvy.github.io/AI-threat-assessment/threat_scoring_dashboard.html](https://nickdulvy.github.io/AI-threat-assessment/threat_scoring_dashboard.html)
+
 Main app file:
 
 - `threat_scoring_dashboard.html`
