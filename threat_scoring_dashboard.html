@@ -403,7 +403,7 @@
 
     function loadSheetRows() {
       const sheetName = el.sheetSelect.value;
-      if (!sheetName || !state.workbook) return;
+      if (!sheetName || !state.workbook) return 0;
       state.sheetName = sheetName;
       const ws = state.workbook.Sheets[sheetName];
       const rows = XLSX.utils.sheet_to_json(ws, { defval: "", raw: false });
@@ -413,7 +413,7 @@
 
       if (rows.length === 0) {
         el.mappingCard.classList.add("hidden");
-        return;
+        return 0;
       }
 
       [el.threatCol, el.reasonCol, el.evidenceCol, el.strengthCol].forEach((s) => {
@@ -426,6 +426,7 @@
       el.strengthCol.value = detectDefault(state.headers, ["strength", "stars"]);
 
       el.mappingCard.classList.remove("hidden");
+      return rows.length;
     }
 
     function setupScoreSelects() {
@@ -858,8 +859,11 @@
         const wb = XLSX.read(arrayBuffer, { type: "array" });
         await loadWorkbookIntoUI(wb, fileName);
         autoSelectBestSheet();
-        loadSheetRows();
-        setRepoLoadStatus(`loaded ${fileName}`);
+        const rowCount = loadSheetRows();
+        if (rowCount > 0) {
+          el.mappingCard.scrollIntoView({ behavior: "smooth", block: "start" });
+        }
+        setRepoLoadStatus(`loaded ${fileName} (${rowCount} row${rowCount === 1 ? "" : "s"})`);
       } catch (err) {
         setRepoLoadStatus(`failed to load ${fileName} (${err.message})`);
       }
