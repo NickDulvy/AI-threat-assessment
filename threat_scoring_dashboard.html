@@ -43,7 +43,7 @@
       grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
     }
     label { font-weight: 600; font-size: 0.92rem; display: block; margin-bottom: 4px; }
-    select, input[type="file"], button, textarea {
+    select, input[type="file"], input[type="password"], button, textarea {
       width: 100%;
       border: 1px solid var(--border);
       border-radius: 8px;
@@ -144,19 +144,6 @@
       <h2>1) Load Spreadsheet</h2>
       <div class="grid">
         <div>
-          <label for="fileInput">Spreadsheet (CSV/XLSX)</label>
-          <input id="fileInput" type="file" accept=".csv,.xlsx,.xls">
-        </div>
-        <div>
-          <label for="sheetSelect">Worksheet</label>
-          <select id="sheetSelect" disabled></select>
-        </div>
-        <div class="row">
-          <button id="loadBtn" disabled>Load Rows</button>
-        </div>
-      </div>
-      <div class="grid" style="margin-top:10px;">
-        <div>
           <label for="repoFolderSelect">Load from GitHub repo folder</label>
           <select id="repoFolderSelect">
             <option value="00_ToBeAssessed">00_ToBeAssessed</option>
@@ -172,9 +159,19 @@
           <button id="loadRepoBtn" disabled>Load Selected Repo File</button>
         </div>
       </div>
+      <div class="grid" style="margin-top:10px;">
+        <div>
+          <label for="sheetSelect">Worksheet (auto-selected; change if needed)</label>
+          <select id="sheetSelect" disabled></select>
+        </div>
+        <div>
+          <label for="githubToken">GitHub token (required for saving)</label>
+          <input id="githubToken" type="password" placeholder="GitHub personal access token with repo access">
+        </div>
+      </div>
       <p class="muted" id="repoLoadStatus">Repo loader: choose a folder and click Refresh Repo Files.</p>
       <p class="muted" id="loadStatus">No file loaded.</p>
-      <p class="muted" id="saveFolderStatus">Save folders: partial not selected (01_PartiallyCompleteAssessments), complete not selected (02_CompletedAssessments)</p>
+      <p class="muted" id="saveFolderStatus">Save target folders on GitHub: partial -> 01_PartiallyCompleteAssessments, complete -> 02_CompletedAssessments</p>
     </div>
 
     <div class="card hidden" id="mappingCard">
@@ -270,11 +267,8 @@
       <div class="footer-actions">
         <button class="secondary" id="prevBtn">Previous</button>
         <button id="saveNextBtn">Save & Next</button>
-        <button class="secondary" id="choosePartialFolderBtn">Choose Partial Folder</button>
-        <button class="secondary" id="chooseCompleteFolderBtn">Choose Complete Folder</button>
-        <button class="secondary" id="savePartialBtn">Save Partial</button>
-        <button class="secondary" id="saveCompleteBtn">Save Complete</button>
-        <button class="secondary" id="exportBtn">Download Final Scored CSV</button>
+        <button class="secondary" id="savePartialBtn">Save Partial to GitHub</button>
+        <button class="secondary" id="saveCompleteBtn">Save Complete to GitHub</button>
       </div>
     </div>
   </div>
@@ -287,8 +281,6 @@
       workbook: null,
       fileName: "",
       sheetName: "",
-      partialDirHandle: null,
-      completeDirHandle: null,
       rawRows: [],
       headers: [],
       mappedRows: [],
@@ -303,14 +295,13 @@
     };
 
     const el = {
-      fileInput: document.getElementById("fileInput"),
       repoFolderSelect: document.getElementById("repoFolderSelect"),
       repoFileSelect: document.getElementById("repoFileSelect"),
       refreshRepoBtn: document.getElementById("refreshRepoBtn"),
       loadRepoBtn: document.getElementById("loadRepoBtn"),
+      githubToken: document.getElementById("githubToken"),
       repoLoadStatus: document.getElementById("repoLoadStatus"),
       sheetSelect: document.getElementById("sheetSelect"),
-      loadBtn: document.getElementById("loadBtn"),
       loadStatus: document.getElementById("loadStatus"),
       mappingCard: document.getElementById("mappingCard"),
       threatCol: document.getElementById("threatCol"),
@@ -336,12 +327,9 @@
       commentText: document.getElementById("commentText"),
       prevBtn: document.getElementById("prevBtn"),
       saveNextBtn: document.getElementById("saveNextBtn"),
-      choosePartialFolderBtn: document.getElementById("choosePartialFolderBtn"),
-      chooseCompleteFolderBtn: document.getElementById("chooseCompleteFolderBtn"),
       savePartialBtn: document.getElementById("savePartialBtn"),
       saveCompleteBtn: document.getElementById("saveCompleteBtn"),
-      saveFolderStatus: document.getElementById("saveFolderStatus"),
-      exportBtn: document.getElementById("exportBtn")
+      saveFolderStatus: document.getElementById("saveFolderStatus")
     };
 
     const GH_REPO = {
@@ -384,23 +372,6 @@
       return "";
     }
 
-    function parseWorkbookFromFile(file) {
-      return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = (e) => {
-          try {
-            const data = e.target.result;
-            const wb = XLSX.read(data, { type: "array" });
-            resolve(wb);
-          } catch (err) {
-            reject(err);
-          }
-        };
-        reader.onerror = reject;
-        reader.readAsArrayBuffer(file);
-      });
-    }
-
     function loadSheetRows() {
       const sheetName = el.sheetSelect.value;
       if (!sheetName || !state.workbook) return 0;
@@ -438,12 +409,8 @@
     }
 
     function setReviewControlsEnabled(enabled) {
-      [el.prevBtn, el.saveNextBtn, el.exportBtn, el.choosePartialFolderBtn, el.chooseCompleteFolderBtn, el.savePartialBtn, el.saveCompleteBtn]
+      [el.prevBtn, el.saveNextBtn, el.savePartialBtn, el.saveCompleteBtn]
         .forEach((btn) => { btn.disabled = !enabled; });
-    }
-
-    function hasFolderWriteSupport() {
-      return typeof window.showDirectoryPicker === "function";
     }
 
     function baseFileName() {
@@ -457,9 +424,7 @@
     }
 
     function setSaveFolderStatus() {
-      const partialName = state.partialDirHandle ? state.partialDirHandle.name : "not selected";
-      const completeName = state.completeDirHandle ? state.completeDirHandle.name : "not selected";
-      el.saveFolderStatus.textContent = `Save folders: partial ${partialName} (01_PartiallyCompleteAssessments), complete ${completeName} (02_CompletedAssessments)`;
+      el.saveFolderStatus.textContent = "Save target folders on GitHub: partial -> 01_PartiallyCompleteAssessments, complete -> 02_CompletedAssessments";
     }
 
     function setRepoLoadStatus(text) {
@@ -471,7 +436,6 @@
       state.fileName = fileLabel;
       fillSelectOptions(el.sheetSelect, state.workbook.SheetNames, false);
       el.sheetSelect.disabled = false;
-      el.loadBtn.disabled = false;
       el.loadStatus.textContent = `File loaded: ${fileLabel}`;
     }
 
@@ -720,98 +684,93 @@
       return lines.join("\n");
     }
 
-    function downloadCSV(filename, csvText) {
-      const blob = new Blob([csvText], { type: "text/csv;charset=utf-8;" });
-      const a = document.createElement("a");
-      a.href = URL.createObjectURL(blob);
-      a.download = filename;
-      a.click();
-      URL.revokeObjectURL(a.href);
+    function utf8ToBase64(text) {
+      return btoa(unescape(encodeURIComponent(text)));
     }
 
-    function exportScoresCSV() {
+    function getGitHubToken() {
+      return (el.githubToken.value || "").trim();
+    }
+
+    function repoContentsUrl(path) {
+      const encodedPath = path.split("/").map((p) => encodeURIComponent(p)).join("/");
+      return `https://api.github.com/repos/${GH_REPO.owner}/${GH_REPO.repo}/contents/${encodedPath}`;
+    }
+
+    async function getExistingFileSha(path, token) {
+      const res = await fetch(`${repoContentsUrl(path)}?ref=${encodeURIComponent(GH_REPO.branch)}`, {
+        headers: { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json" }
+      });
+      if (res.status === 404) return null;
+      if (!res.ok) throw new Error(`GitHub lookup failed (${res.status})`);
+      const json = await res.json();
+      return json.sha || null;
+    }
+
+    async function getUniqueGitHubPath(folder, preferredFilename, token) {
+      const dot = preferredFilename.lastIndexOf(".");
+      const stem = dot >= 0 ? preferredFilename.slice(0, dot) : preferredFilename;
+      const ext = dot >= 0 ? preferredFilename.slice(dot) : "";
+      let candidate = preferredFilename;
+      let counter = 1;
+      while (true) {
+        const path = `${folder}/${candidate}`;
+        const existsSha = await getExistingFileSha(path, token);
+        if (!existsSha) return path;
+        counter += 1;
+        candidate = `${stem}_${String(counter).padStart(2, "0")}${ext}`;
+      }
+    }
+
+    async function saveCSVToGitHub(folder, tagLabel) {
       saveCurrent();
-      downloadCSV(`${baseFileName()}_scored.csv`, buildScoredCSVText());
-    }
-
-    async function choosePartialFolder() {
-      if (!hasFolderWriteSupport()) {
-        setSaveFolderStatus();
-        alert("This browser cannot write directly to a folder. Please use Chrome/Edge and open this dashboard via localhost or GitHub Pages.");
-        return;
-      }
-      try {
-        const dirHandle = await window.showDirectoryPicker({ mode: "readwrite" });
-        state.partialDirHandle = dirHandle;
-        setSaveFolderStatus();
-      } catch (err) {
-        if (err && err.name === "AbortError") return;
-        setSaveFolderStatus();
-      }
-    }
-
-    async function chooseCompleteFolder() {
-      if (!hasFolderWriteSupport()) {
-        setSaveFolderStatus();
-        alert("This browser cannot write directly to a folder. Please use Chrome/Edge and open this dashboard via localhost or GitHub Pages.");
-        return;
-      }
-      try {
-        const dirHandle = await window.showDirectoryPicker({ mode: "readwrite" });
-        state.completeDirHandle = dirHandle;
-        setSaveFolderStatus();
-      } catch (err) {
-        if (err && err.name === "AbortError") return;
-        setSaveFolderStatus();
-      }
-    }
-
-    async function saveCSVToSelectedFolder(filename, folderType) {
-      const dirHandle = folderType === "partial" ? state.partialDirHandle : state.completeDirHandle;
-      const expected = folderType === "partial" ? "01_PartiallyCompleteAssessments" : "02_CompletedAssessments";
-      if (!dirHandle) {
-        alert(`Select your ${folderType} save folder first (${expected}).`);
+      const token = getGitHubToken();
+      if (!token) {
+        alert("Enter a GitHub token first (repo access required).");
         return false;
       }
+      const filename = `${baseFileName()}_${tagLabel}_${timestampToken()}.csv`;
+      const content = utf8ToBase64(buildScoredCSVText());
       try {
-        const csvText = buildScoredCSVText();
-        const fileHandle = await dirHandle.getFileHandle(filename, { create: true });
-        const writable = await fileHandle.createWritable();
-        await writable.write(csvText);
-        await writable.close();
-        setSaveFolderStatus();
+        setRepoLoadStatus(`saving ${filename} to ${folder}...`);
+        const path = await getUniqueGitHubPath(folder, filename, token);
+        const savedName = path.split("/").pop() || filename;
+        const body = {
+          message: `Save ${tagLabel.toLowerCase()} assessment: ${savedName}`,
+          content,
+          branch: GH_REPO.branch
+        };
+        const res = await fetch(repoContentsUrl(path), {
+          method: "PUT",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            Accept: "application/vnd.github+json",
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify(body)
+        });
+        if (!res.ok) {
+          const txt = await res.text();
+          throw new Error(`GitHub save failed (${res.status}): ${txt}`);
+        }
+        setRepoLoadStatus(`saved ${savedName} to ${folder}`);
         return true;
       } catch (err) {
-        setSaveFolderStatus();
+        setRepoLoadStatus(`save failed (${err.message})`);
         alert(`Save failed: ${err.message}`);
         return false;
       }
     }
 
-    async function savePartialToFolder() {
-      saveCurrent();
-      const filename = `${baseFileName()}_PARTIAL_${timestampToken()}.csv`;
-      await saveCSVToSelectedFolder(filename, "partial");
+    async function savePartialToGitHub() {
+      await saveCSVToGitHub("01_PartiallyCompleteAssessments", "PARTIAL");
+      refreshRepoFiles();
     }
 
-    async function saveCompleteToFolder() {
-      saveCurrent();
-      const filename = `${baseFileName()}_COMPLETE_${timestampToken()}.csv`;
-      const ok = await saveCSVToSelectedFolder(filename, "complete");
-      if (ok) alert("Complete assessment saved.");
+    async function saveCompleteToGitHub() {
+      const ok = await saveCSVToGitHub("02_CompletedAssessments", "COMPLETE");
+      if (ok) alert("Complete assessment saved to GitHub.");
     }
-
-    el.fileInput.addEventListener("change", async (e) => {
-      const file = e.target.files?.[0];
-      if (!file) return;
-
-      try {
-        const wb = await parseWorkbookFromFile(file);
-        await loadWorkbookIntoUI(wb, file.name);
-      } catch (err) {
-        el.loadStatus.textContent = `Error loading file: ${err.message}`;
-      }
-    });
 
     async function refreshRepoFiles() {
       const folder = el.repoFolderSelect.value;
@@ -869,18 +828,15 @@
       }
     }
 
-    el.loadBtn.addEventListener("click", loadSheetRows);
     el.refreshRepoBtn.addEventListener("click", refreshRepoFiles);
     el.loadRepoBtn.addEventListener("click", loadSelectedRepoFile);
     el.repoFolderSelect.addEventListener("change", refreshRepoFiles);
+    el.sheetSelect.addEventListener("change", loadSheetRows);
     el.startReviewBtn.addEventListener("click", startReview);
     el.prevBtn.addEventListener("click", prevRow);
     el.saveNextBtn.addEventListener("click", nextRow);
-    el.exportBtn.addEventListener("click", exportScoresCSV);
-    el.choosePartialFolderBtn.addEventListener("click", choosePartialFolder);
-    el.chooseCompleteFolderBtn.addEventListener("click", chooseCompleteFolder);
-    el.savePartialBtn.addEventListener("click", savePartialToFolder);
-    el.saveCompleteBtn.addEventListener("click", saveCompleteToFolder);
+    el.savePartialBtn.addEventListener("click", savePartialToGitHub);
+    el.saveCompleteBtn.addEventListener("click", saveCompleteToGitHub);
     [el.reasonLogicScore, el.reasonRelevanceScore, el.evidenceAccuracyScore, el.evidenceRelevanceScore, el.strengthAccuracyScore, el.commentText]
       .forEach((node) => {
         node.addEventListener("change", persistAutosave);
@@ -893,7 +849,6 @@
     setupScoreSelects();
     setReviewControlsEnabled(false);
     setSaveFolderStatus();
-    if (!hasFolderWriteSupport()) setSaveFolderStatus();
     refreshRepoFiles();
   </script>
 </body>

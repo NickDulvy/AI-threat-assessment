@@ -1,0 +1,4 @@
+01_PartiallyCompleteAssessments/*
+02_CompletedAssessments/*
+!01_PartiallyCompleteAssessments/.gitkeep
+!02_CompletedAssessments/.gitkeep
