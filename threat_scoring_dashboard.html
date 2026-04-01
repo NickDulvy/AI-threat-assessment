@@ -474,6 +474,13 @@
       el.loadStatus.textContent = `File loaded: ${fileLabel}`;
     }
 
+    function autoSelectBestSheet() {
+      const names = state.workbook?.SheetNames || [];
+      if (!names.length) return;
+      const preferred = names.find((n) => String(n).toLowerCase().includes("threat assessment"));
+      el.sheetSelect.value = preferred || names[0];
+    }
+
     function startReview() {
       state.map.threat = el.threatCol.value;
       state.map.reason = el.reasonCol.value;
@@ -850,6 +857,8 @@
         const arrayBuffer = await res.arrayBuffer();
         const wb = XLSX.read(arrayBuffer, { type: "array" });
         await loadWorkbookIntoUI(wb, fileName);
+        autoSelectBestSheet();
+        loadSheetRows();
         setRepoLoadStatus(`loaded ${fileName}`);
       } catch (err) {
         setRepoLoadStatus(`failed to load ${fileName} (${err.message})`);
