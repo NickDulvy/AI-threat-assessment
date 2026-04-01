@@ -1,0 +1,626 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AI Threat Assessment Scoring Dashboard</title>
+  <style>
+    :root {
+      --bg: #f7f8fa;
+      --card: #ffffff;
+      --text: #1f2937;
+      --muted: #6b7280;
+      --accent: #2563eb;
+      --border: #d1d5db;
+      --ok: #16a34a;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+    }
+    .wrap {
+      max-width: 1200px;
+      margin: 20px auto 60px;
+      padding: 0 16px;
+    }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 16px;
+      margin-bottom: 14px;
+    }
+    h1, h2, h3 { margin: 0 0 10px; }
+    h1 { font-size: 1.5rem; }
+    h2 { font-size: 1.1rem; }
+    h3 { font-size: 1rem; }
+    .grid {
+      display: grid;
+      gap: 10px;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    }
+    label { font-weight: 600; font-size: 0.92rem; display: block; margin-bottom: 4px; }
+    select, input[type="file"], button, textarea {
+      width: 100%;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 8px 10px;
+      background: white;
+      font: inherit;
+    }
+    button {
+      cursor: pointer;
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      font-weight: 600;
+    }
+    button.secondary {
+      background: #374151;
+    }
+    button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+    .muted { color: var(--muted); font-size: 0.9rem; }
+    .row { display: flex; gap: 8px; align-items: center; }
+    .row > * { flex: 1; }
+    .row .tight { flex: 0 0 auto; width: auto; }
+    .pill {
+      display: inline-block;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      padding: 4px 10px;
+      font-size: 0.82rem;
+      color: var(--muted);
+      margin-right: 8px;
+    }
+    .kpi { font-size: 0.92rem; }
+    .kpi strong { color: var(--ok); }
+    .hidden { display: none; }
+    .guidance {
+      border-left: 3px solid var(--accent);
+      padding-left: 10px;
+      margin: 8px 0;
+      color: #111827;
+      font-size: 0.92rem;
+    }
+    .question {
+      border-top: 1px dashed var(--border);
+      padding-top: 10px;
+      margin-top: 10px;
+    }
+    .score-grid {
+      display: grid;
+      gap: 10px;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    }
+    textarea { min-height: 80px; resize: vertical; }
+    .threat-title {
+      font-size: 1.05rem;
+      font-weight: 700;
+      margin-bottom: 8px;
+    }
+    .reason {
+      background: #f9fafb;
+      border: 1px solid #e5e7eb;
+      border-radius: 8px;
+      padding: 10px;
+      margin-bottom: 8px;
+    }
+    .footer-actions {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-top: 12px;
+    }
+  </style>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <h1>AI Threat Justification Scoring Dashboard</h1>
+      <p class="muted">
+        Load a spreadsheet, map your columns, then walk row-by-row through each Threat and Reason with rubric guidance.
+      </p>
+    </div>
+
+    <div class="card">
+      <h2>1) Load Spreadsheet</h2>
+      <div class="grid">
+        <div>
+          <label for="fileInput">Spreadsheet (CSV/XLSX)</label>
+          <input id="fileInput" type="file" accept=".csv,.xlsx,.xls">
+        </div>
+        <div>
+          <label for="sheetSelect">Worksheet</label>
+          <select id="sheetSelect" disabled></select>
+        </div>
+        <div class="row">
+          <button id="loadBtn" disabled>Load Rows</button>
+        </div>
+      </div>
+      <p class="muted" id="loadStatus">No file loaded.</p>
+    </div>
+
+    <div class="card hidden" id="mappingCard">
+      <h2>2) Map Columns</h2>
+      <div class="grid">
+        <div>
+          <label for="threatCol">Threat column</label>
+          <select id="threatCol"></select>
+        </div>
+        <div>
+          <label for="reasonCol">Reason column</label>
+          <select id="reasonCol"></select>
+        </div>
+        <div>
+          <label for="evidenceCol">Evidence column</label>
+          <select id="evidenceCol"></select>
+        </div>
+        <div>
+          <label for="strengthCol">Strength of Evidence column (optional)</label>
+          <select id="strengthCol"></select>
+        </div>
+      </div>
+      <div class="footer-actions">
+        <button id="startReviewBtn">Start Threat/Reason Walkthrough</button>
+      </div>
+    </div>
+
+    <div class="card hidden" id="reviewCard">
+      <h2>3) Review and Score</h2>
+      <div class="row">
+        <div class="kpi">
+          <span class="pill" id="progressPill">0 / 0</span>
+          <span class="pill" id="threatPill">Threat: -</span>
+          <span id="completionText"><strong>0%</strong> completed</span>
+        </div>
+      </div>
+      <p class="muted" id="autosaveStatus">Autosave: waiting</p>
+
+      <div class="threat-title" id="threatText"></div>
+      <div class="reason"><strong>Reason</strong><br><span id="reasonText"></span></div>
+      <div class="reason"><strong>Evidence</strong><br><span id="evidenceText"></span></div>
+      <div class="reason"><strong>Strength of Evidence (from sheet)</strong><br><span id="strengthText"></span></div>
+
+      <div class="score-grid">
+        <div class="question">
+          <label for="reasonLogicScore">Reason: Accuracy/Logic (0-3)</label>
+          <select id="reasonLogicScore"></select>
+          <div class="guidance">
+            0: Does not fit allowed categories. 1: Related but inaccurate/unclear chain. 2: Related and accurate but vague.
+            3: Related, accurate, and clear.
+          </div>
+        </div>
+
+        <div class="question">
+          <label for="reasonRelevanceScore">Reason: Relevance to Species (0-3)</label>
+          <select id="reasonRelevanceScore"></select>
+          <div class="guidance">
+            0: Not relevant. 1: Low relevance. 2: Moderate relevance. 3: High relevance to species.
+          </div>
+        </div>
+
+        <div class="question">
+          <label for="evidenceAccuracyScore">Evidence: Accuracy (0-3)</label>
+          <select id="evidenceAccuracyScore"></select>
+          <div class="guidance">
+            0: References do not support statement. 1: Weak support. 2: Moderate/indirect support. 3: Strong direct support.
+          </div>
+        </div>
+
+        <div class="question">
+          <label for="evidenceRelevanceScore">Evidence: Relevance (0-3)</label>
+          <select id="evidenceRelevanceScore"></select>
+          <div class="guidance">
+            0: Irrelevant. 1: Indirectly relevant. 2: Moderately relevant. 3: Directly relevant to species and reason.
+          </div>
+        </div>
+
+        <div class="question">
+          <label for="strengthAccuracyScore">Strength: Accuracy (-3 to +3, 0 = correct)</label>
+          <select id="strengthAccuracyScore"></select>
+          <div class="guidance">
+            0: Current stars are correct. Negative values mean overrated by that many stars. Positive values mean underrated.
+          </div>
+        </div>
+      </div>
+
+      <div class="question">
+        <label for="commentText">Comments (optional)</label>
+        <textarea id="commentText" placeholder="Explain low scores, reasoning concerns, or notes."></textarea>
+      </div>
+
+      <div class="footer-actions">
+        <button class="secondary" id="prevBtn">Previous</button>
+        <button id="saveNextBtn">Save & Next</button>
+        <button class="secondary" id="exportBtn">Download Final Scored CSV</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const score03 = ["", "0", "1", "2", "3"];
+    const scoreStrength = ["", "-3", "-2", "-1", "0", "+1", "+2", "+3"];
+
+    const state = {
+      workbook: null,
+      fileName: "",
+      sheetName: "",
+      rawRows: [],
+      headers: [],
+      mappedRows: [],
+      scores: [],
+      currentIndex: 0,
+      map: {
+        threat: "",
+        reason: "",
+        evidence: "",
+        strength: ""
+      }
+    };
+
+    const el = {
+      fileInput: document.getElementById("fileInput"),
+      sheetSelect: document.getElementById("sheetSelect"),
+      loadBtn: document.getElementById("loadBtn"),
+      loadStatus: document.getElementById("loadStatus"),
+      mappingCard: document.getElementById("mappingCard"),
+      threatCol: document.getElementById("threatCol"),
+      reasonCol: document.getElementById("reasonCol"),
+      evidenceCol: document.getElementById("evidenceCol"),
+      strengthCol: document.getElementById("strengthCol"),
+      startReviewBtn: document.getElementById("startReviewBtn"),
+      reviewCard: document.getElementById("reviewCard"),
+      autosaveStatus: document.getElementById("autosaveStatus"),
+      progressPill: document.getElementById("progressPill"),
+      threatPill: document.getElementById("threatPill"),
+      completionText: document.getElementById("completionText"),
+      threatText: document.getElementById("threatText"),
+      reasonText: document.getElementById("reasonText"),
+      evidenceText: document.getElementById("evidenceText"),
+      strengthText: document.getElementById("strengthText"),
+      reasonLogicScore: document.getElementById("reasonLogicScore"),
+      reasonRelevanceScore: document.getElementById("reasonRelevanceScore"),
+      evidenceAccuracyScore: document.getElementById("evidenceAccuracyScore"),
+      evidenceRelevanceScore: document.getElementById("evidenceRelevanceScore"),
+      strengthAccuracyScore: document.getElementById("strengthAccuracyScore"),
+      commentText: document.getElementById("commentText"),
+      prevBtn: document.getElementById("prevBtn"),
+      saveNextBtn: document.getElementById("saveNextBtn"),
+      exportBtn: document.getElementById("exportBtn")
+    };
+
+    const SCORE_COLS = {
+      reasonLogic: "Reason: Accuracy/Logic",
+      reasonRelevance: "Reason: Relevance to the species",
+      evidenceAccuracy: "Evidence: Accuracy",
+      evidenceRelevance: "Evidence: Relevance",
+      strengthAccuracy: "Strength: Accuracy",
+      comments: "Comments"
+    };
+
+    function fillSelectOptions(selectEl, options, includeBlank = true) {
+      selectEl.innerHTML = "";
+      if (includeBlank) {
+        const blank = document.createElement("option");
+        blank.value = "";
+        blank.textContent = "-- select --";
+        selectEl.appendChild(blank);
+      }
+      options.forEach((opt) => {
+        const o = document.createElement("option");
+        o.value = opt;
+        o.textContent = opt;
+        selectEl.appendChild(o);
+      });
+    }
+
+    function detectDefault(headers, patterns) {
+      const lower = headers.map((h) => String(h).toLowerCase());
+      for (const p of patterns) {
+        const idx = lower.findIndex((h) => h.includes(p));
+        if (idx >= 0) return headers[idx];
+      }
+      return "";
+    }
+
+    function parseWorkbookFromFile(file) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          try {
+            const data = e.target.result;
+            const wb = XLSX.read(data, { type: "array" });
+            resolve(wb);
+          } catch (err) {
+            reject(err);
+          }
+        };
+        reader.onerror = reject;
+        reader.readAsArrayBuffer(file);
+      });
+    }
+
+    function loadSheetRows() {
+      const sheetName = el.sheetSelect.value;
+      if (!sheetName || !state.workbook) return;
+      state.sheetName = sheetName;
+      const ws = state.workbook.Sheets[sheetName];
+      const rows = XLSX.utils.sheet_to_json(ws, { defval: "", raw: false });
+      state.rawRows = rows;
+      state.headers = rows.length ? Object.keys(rows[0]) : [];
+      el.loadStatus.textContent = `Loaded ${rows.length} rows from "${sheetName}".`;
+
+      if (rows.length === 0) {
+        el.mappingCard.classList.add("hidden");
+        return;
+      }
+
+      [el.threatCol, el.reasonCol, el.evidenceCol, el.strengthCol].forEach((s) => {
+        fillSelectOptions(s, state.headers, true);
+      });
+
+      el.threatCol.value = detectDefault(state.headers, ["threat"]);
+      el.reasonCol.value = detectDefault(state.headers, ["reason"]);
+      el.evidenceCol.value = detectDefault(state.headers, ["evidence"]);
+      el.strengthCol.value = detectDefault(state.headers, ["strength", "stars"]);
+
+      el.mappingCard.classList.remove("hidden");
+    }
+
+    function setupScoreSelects() {
+      fillSelectOptions(el.reasonLogicScore, score03, false);
+      fillSelectOptions(el.reasonRelevanceScore, score03, false);
+      fillSelectOptions(el.evidenceAccuracyScore, score03, false);
+      fillSelectOptions(el.evidenceRelevanceScore, score03, false);
+      fillSelectOptions(el.strengthAccuracyScore, scoreStrength, false);
+    }
+
+    function setReviewControlsEnabled(enabled) {
+      [el.prevBtn, el.saveNextBtn, el.exportBtn].forEach((btn) => { btn.disabled = !enabled; });
+    }
+
+    function startReview() {
+      state.map.threat = el.threatCol.value;
+      state.map.reason = el.reasonCol.value;
+      state.map.evidence = el.evidenceCol.value;
+      state.map.strength = el.strengthCol.value;
+
+      if (!state.map.threat || !state.map.reason || !state.map.evidence) {
+        alert("Please map Threat, Reason, and Evidence columns.");
+        return;
+      }
+
+      state.mappedRows = state.rawRows
+        .map((r, idx) => ({
+          sourceRow: idx + 2,
+          threat: String(r[state.map.threat] || "").trim(),
+          reason: String(r[state.map.reason] || "").trim(),
+          evidence: String(r[state.map.evidence] || "").trim(),
+          strength: state.map.strength ? String(r[state.map.strength] || "").trim() : ""
+        }))
+        .filter((r) => r.threat || r.reason || r.evidence);
+
+      state.scores = state.mappedRows.map(() => ({
+        reasonLogic: "",
+        reasonRelevance: "",
+        evidenceAccuracy: "",
+        evidenceRelevance: "",
+        strengthAccuracy: "",
+        comments: ""
+      }));
+      state.currentIndex = 0;
+
+      if (state.mappedRows.length === 0) {
+        alert("No usable rows found after mapping. Check your worksheet and column selections.");
+        return;
+      }
+
+      el.reviewCard.classList.remove("hidden");
+      setReviewControlsEnabled(true);
+      restoreAutosave();
+      renderCurrent();
+    }
+
+    function makeAutosaveKey() {
+      const sigRows = state.mappedRows
+        .slice(0, 10)
+        .map((r) => `${r.threat}|${r.reason}|${r.evidence}`)
+        .join("||");
+      return `threat_dashboard_autosave::${state.fileName}::${state.sheetName}::${state.mappedRows.length}::${sigRows}`;
+    }
+
+    function setAutosaveStatus(text) {
+      el.autosaveStatus.textContent = `Autosave: ${text}`;
+    }
+
+    function persistAutosave() {
+      if (!state.mappedRows.length) return;
+      try {
+        const key = makeAutosaveKey();
+        const payload = {
+          currentIndex: state.currentIndex,
+          map: state.map,
+          scores: state.scores
+        };
+        localStorage.setItem(key, JSON.stringify(payload));
+        setAutosaveStatus(`saved ${new Date().toLocaleTimeString()}`);
+      } catch (err) {
+        setAutosaveStatus(`failed (${err.message})`);
+      }
+    }
+
+    function restoreAutosave() {
+      if (!state.mappedRows.length) return;
+      try {
+        const key = makeAutosaveKey();
+        const raw = localStorage.getItem(key);
+        if (!raw) {
+          setAutosaveStatus("no previous session");
+          return;
+        }
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed.scores) && parsed.scores.length === state.scores.length) {
+          state.scores = parsed.scores;
+        }
+        if (Number.isInteger(parsed.currentIndex) && parsed.currentIndex >= 0 && parsed.currentIndex < state.mappedRows.length) {
+          state.currentIndex = parsed.currentIndex;
+        }
+        setAutosaveStatus(`restored ${new Date().toLocaleTimeString()}`);
+      } catch (err) {
+        setAutosaveStatus(`restore failed (${err.message})`);
+      }
+    }
+
+    function getThreatOrderIndex(idx) {
+      const threat = state.mappedRows[idx]?.threat || "";
+      const seen = [];
+      state.mappedRows.forEach((row) => {
+        if (row.threat && !seen.includes(row.threat)) seen.push(row.threat);
+      });
+      return Math.max(1, seen.indexOf(threat) + 1);
+    }
+
+    function renderCurrent() {
+      const idx = state.currentIndex;
+      const row = state.mappedRows[idx];
+      const s = state.scores[idx];
+      if (!row) return;
+
+      const total = state.mappedRows.length;
+      const completed = state.scores.filter((x) => x.reasonLogic !== "").length;
+      const pct = Math.round((completed / total) * 100);
+
+      el.progressPill.textContent = `${idx + 1} / ${total}`;
+      el.threatPill.textContent = `Threat Group: ${getThreatOrderIndex(idx)}`;
+      el.completionText.innerHTML = `<strong>${pct}%</strong> completed`;
+      el.threatText.textContent = row.threat || "(No threat text)";
+      el.reasonText.textContent = row.reason || "(No reason text)";
+      el.evidenceText.textContent = row.evidence || "(No evidence text)";
+      el.strengthText.textContent = row.strength || "(No strength value in mapped column)";
+
+      el.reasonLogicScore.value = s.reasonLogic;
+      el.reasonRelevanceScore.value = s.reasonRelevance;
+      el.evidenceAccuracyScore.value = s.evidenceAccuracy;
+      el.evidenceRelevanceScore.value = s.evidenceRelevance;
+      el.strengthAccuracyScore.value = s.strengthAccuracy;
+      el.commentText.value = s.comments;
+
+      el.prevBtn.disabled = idx === 0;
+      el.saveNextBtn.textContent = idx === total - 1 ? "Save" : "Save & Next";
+    }
+
+    function saveCurrent() {
+      const idx = state.currentIndex;
+      state.scores[idx] = {
+        reasonLogic: el.reasonLogicScore.value,
+        reasonRelevance: el.reasonRelevanceScore.value,
+        evidenceAccuracy: el.evidenceAccuracyScore.value,
+        evidenceRelevance: el.evidenceRelevanceScore.value,
+        strengthAccuracy: el.strengthAccuracyScore.value,
+        comments: el.commentText.value.trim()
+      };
+      persistAutosave();
+    }
+
+    function nextRow() {
+      saveCurrent();
+      if (state.currentIndex < state.mappedRows.length - 1) {
+        state.currentIndex += 1;
+      }
+      renderCurrent();
+    }
+
+    function prevRow() {
+      saveCurrent();
+      if (state.currentIndex > 0) {
+        state.currentIndex -= 1;
+      }
+      renderCurrent();
+    }
+
+    function csvEscape(value) {
+      const text = String(value ?? "");
+      if (text.includes(",") || text.includes("\"") || text.includes("\n")) {
+        return `"${text.replace(/"/g, "\"\"")}"`;
+      }
+      return text;
+    }
+
+    function exportScoresCSV() {
+      saveCurrent();
+      const outRows = state.rawRows.map((r) => ({ ...r }));
+
+      const ensureColumn = (name) => {
+        if (!state.headers.includes(name)) state.headers.push(name);
+      };
+      Object.values(SCORE_COLS).forEach(ensureColumn);
+
+      state.mappedRows.forEach((row, i) => {
+        const outIdx = row.sourceRow - 2;
+        if (outIdx < 0 || outIdx >= outRows.length) return;
+        const s = state.scores[i];
+        outRows[outIdx][SCORE_COLS.reasonLogic] = s.reasonLogic;
+        outRows[outIdx][SCORE_COLS.reasonRelevance] = s.reasonRelevance;
+        outRows[outIdx][SCORE_COLS.evidenceAccuracy] = s.evidenceAccuracy;
+        outRows[outIdx][SCORE_COLS.evidenceRelevance] = s.evidenceRelevance;
+        outRows[outIdx][SCORE_COLS.strengthAccuracy] = s.strengthAccuracy;
+        outRows[outIdx][SCORE_COLS.comments] = s.comments;
+      });
+
+      const lines = [state.headers.map(csvEscape).join(",")];
+      outRows.forEach((r) => {
+        const vals = state.headers.map((h) => csvEscape(r[h] ?? ""));
+        lines.push(vals.join(","));
+      });
+
+      const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8;" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      const base = state.fileName ? state.fileName.replace(/\.[^.]+$/, "") : "threat_assessment";
+      a.download = `${base}_scored.csv`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+    }
+
+    el.fileInput.addEventListener("change", async (e) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+
+      try {
+        state.fileName = file.name;
+        state.workbook = await parseWorkbookFromFile(file);
+        fillSelectOptions(el.sheetSelect, state.workbook.SheetNames, false);
+        el.sheetSelect.disabled = false;
+        el.loadBtn.disabled = false;
+        el.loadStatus.textContent = `File loaded: ${file.name}`;
+      } catch (err) {
+        el.loadStatus.textContent = `Error loading file: ${err.message}`;
+      }
+    });
+
+    el.loadBtn.addEventListener("click", loadSheetRows);
+    el.startReviewBtn.addEventListener("click", startReview);
+    el.prevBtn.addEventListener("click", prevRow);
+    el.saveNextBtn.addEventListener("click", nextRow);
+    el.exportBtn.addEventListener("click", exportScoresCSV);
+    [el.reasonLogicScore, el.reasonRelevanceScore, el.evidenceAccuracyScore, el.evidenceRelevanceScore, el.strengthAccuracyScore, el.commentText]
+      .forEach((node) => {
+        node.addEventListener("change", persistAutosave);
+        node.addEventListener("input", () => {
+          clearTimeout(window.__autosaveDebounce);
+          window.__autosaveDebounce = setTimeout(persistAutosave, 350);
+        });
+      });
+
+    setupScoreSelects();
+    setReviewControlsEnabled(false);
+  </script>
+</body>
+</html>
